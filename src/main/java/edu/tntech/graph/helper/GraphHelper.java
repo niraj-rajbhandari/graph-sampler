@@ -1,7 +1,12 @@
 package edu.tntech.graph.helper;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.tntech.graph.pojo.Edge;
 import edu.tntech.graph.pojo.GraphProperty;
+import edu.tntech.graph.pojo.Sample;
+
+import java.io.File;
+import java.io.IOException;
 
 public class GraphHelper {
     public static final String GRAPH_ID_KEY = "graph_id";
@@ -47,6 +52,12 @@ public class GraphHelper {
 
     public static void setEdgeSourceAttribute(Edge edge, String sourceId) {
         edge.getAttributes().put(GRAPH_EDGE_SOURCE_KEY, sourceId);
+    }
+
+    public static Sample getStoredSample() throws IOException{
+        ObjectMapper mapper = new ObjectMapper();
+        File sampleFile = new File(Helper.getInstance().getAbsolutePath(Sample.SAMPLE_FILE));
+        return mapper.readValue(sampleFile, Sample.class);
     }
 
 }

@@ -4,14 +4,13 @@ import edu.tntech.graph.helper.GraphHelper;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 public class Sample {
     public static final String STORE_SAMPLE_INDEX = "store-sample";
     public static final String SAMPLE_FILE = "sample.json";
 
     private Map<String, Map<Integer, Node>> sampleNodes;
-    private Map<String, Map<String,Edge>> sampleEdges;
+    private Map<String, Map<Integer,Edge>> sampleEdges;
 
     public Map<String, Map<Integer, Node>> getSampleNodes() {
         return sampleNodes;
@@ -21,17 +20,16 @@ public class Sample {
         this.sampleNodes = sampleNodes;
     }
 
-    public Map<String, Map<String,Edge>> getSampleEdges() {
+    public Map<String, Map<Integer,Edge>> getSampleEdges() {
         return sampleEdges;
     }
 
-    public void setSampleEdges(Map<String, Map<String,Edge>> sampleEdges) {
+    public void setSampleEdges(Map<String, Map<Integer,Edge>> sampleEdges) {
         this.sampleEdges = sampleEdges;
     }
 
     public Sample() {
-        this.sampleNodes = new HashMap<>();
-        this.sampleEdges = new HashMap<>();
+       this.reset();
     }
 
     public boolean sampleGraphContainsNode(Node node, String graphId) {
@@ -46,6 +44,7 @@ public class Sample {
 
     public void reset() {
         this.sampleEdges = new HashMap<>();
+        this.sampleNodes = new HashMap<>();
     }
 
     @Override

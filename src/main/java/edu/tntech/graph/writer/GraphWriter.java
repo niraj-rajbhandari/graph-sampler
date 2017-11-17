@@ -1,6 +1,5 @@
 package edu.tntech.graph.writer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.tntech.graph.enumerator.EdgeType;
 import edu.tntech.graph.helper.ConfigReader;
 import edu.tntech.graph.helper.GraphHelper;
@@ -11,44 +10,65 @@ import edu.tntech.graph.pojo.Node;
 import edu.tntech.graph.pojo.Sample;
 import edu.tntech.graph.sampler.Sampler;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class GraphWriter {
-
+    private static final Logger log = Logger.getLogger(GraphWriter.class.getName());
     private static final String GRAPH_FILE_PROPERTY_KEY = "graph-file";
-    private Helper helper;
 
     private Sample sample;
 
 
     public GraphWriter(boolean isStored) throws IOException {
-        helper = Helper.getInstance();
         if (isStored) {
             sample = _readStoredSample();
         } else {
             sample = Sampler.getInstance().getSample();
         }
 
-        System.out.println("Sampled Edges:" + sample.getSampleEdges());
+        log.info("sampledEdges: " + sample.getSampleEdges());
     }
 
+    /**
+     * Write graph to the file
+     *
+     * @throws IOException
+     */
     public void write() throws IOException {
-        System.out.println("write called");
         String graphFile = Helper.getInstance()
                 .getAbsolutePath(ConfigReader.getInstance().getProperty(GRAPH_FILE_PROPERTY_KEY));
         try (RandomAccessFile fileStream = new RandomAccessFile(graphFile, "rw");
              FileChannel channel = fileStream.getChannel()) {
             channel.truncate(0); //empty the file first
             _writeGraph(channel);
+            _reset();
         }
     }
 
+    /**
+     * Reset the graph writer
+     *
+     * @throws IOException
+     */
+    private void _reset() throws IOException {
+        sample = null;
+
+        //Setting the sample from the file for next time window
+        Sampler.getInstance().setSample();
+    }
+
+    /**
+     * Writes the graph
+     *
+     * @param channel
+     * @throws IOException
+     */
     private void _writeGraph(FileChannel channel) throws IOException {
         Integer xpCount = 0;
         for (String xp : sample.getSampleNodes().keySet()) {
@@ -59,13 +79,13 @@ public class GraphWriter {
         }
     }
 
-    private List<String> test(Edge edge) {
-        List<String> test = new ArrayList<>();
-        test.add(edge.getSource());
-        test.add(edge.getTarget());
-        return test;
-    }
-
+    /**
+     * Write each node to the graph file
+     *
+     * @param channel
+     * @param xp
+     * @throws IOException
+     */
     private void _writeNodeToFile(FileChannel channel, String xp)
             throws IOException {
 
@@ -82,17 +102,33 @@ public class GraphWriter {
     }
 
 
+    /**
+     * Orders the node in incremental fashion
+     *
+     * @param newNode
+     * @param oldNodeId
+     * @param xp
+     */
     private void _orderEdges(Node newNode, String oldNodeId, String xp) {
-        if (!oldNodeId.equals(newNode.getId()) && this.getSortedSampledEdgesForGraph(xp) != null) {
+        if (!oldNodeId.equals(newNode.getId()) && !this.sample.getSampleEdges().isEmpty()
+                && this.sample.getSampleEdges().get(xp) != null) {
 
-            Map<String, Edge> edgesForXp = this.getSortedSampledEdgesForGraph(xp).stream()
+            Map<Integer, Edge> edgesForXp = this.sample.getSampleEdges().get(xp).values().stream()
                     .map(e -> _updateEdge(e, oldNodeId, newNode))
-                    .collect(Collectors.toMap(e -> e.getId(), e -> e));
+                    .collect(Collectors.toMap(Edge::getIdNumber, e -> e));
 
             this._setSampledEdgesForGraph(xp, edgesForXp);
         }
     }
 
+    /**
+     * Updates the edges source and target with incremental node id
+     *
+     * @param edge
+     * @param oldNodeId
+     * @param newNode
+     * @return
+     */
     private Edge _updateEdge(Edge edge, String oldNodeId, Node newNode) {
         if (edge.getSource().equals(oldNodeId)) {
             edge.setSource(newNode.getId());
@@ -104,9 +140,14 @@ public class GraphWriter {
         return edge;
     }
 
+    /**
+     * Writes edge to the file
+     *
+     * @param channel
+     * @param xp
+     * @throws IOException
+     */
     private void _writeEdgeToFile(FileChannel channel, String xp) throws IOException {
-//        System.out.println(xp);
-//        System.out.println(this.sample.getSampleEdges());
         if (!this.sample.getSampleEdges().isEmpty() && this.sample.getSampleEdges().get(xp) != null)
             for (Edge edge : this.sample.getSampleEdges().get(xp).values()) {
                 String edgeLine = _getEdgeLine(edge);
@@ -114,6 +155,12 @@ public class GraphWriter {
             }
     }
 
+    /**
+     * Gets the node line to be written to the file
+     *
+     * @param node
+     * @return
+     */
     private String _getNodeLine(Node node) {
         StringBuilder nodeLineBuilder = new StringBuilder();
         String comment = _getCommentString(node);
@@ -134,6 +181,12 @@ public class GraphWriter {
         return nodeLineBuilder.toString();
     }
 
+    /**
+     * Gets the edge line to be written to the file
+     *
+     * @param edge
+     * @return
+     */
     private String _getEdgeLine(Edge edge) {
         StringBuilder edgeLineBuilder = new StringBuilder();
         String comment = _getCommentString(edge);
@@ -158,6 +211,12 @@ public class GraphWriter {
         return edgeLineBuilder.toString();
     }
 
+    /**
+     * Gets the positive graph line
+     *
+     * @param xp
+     * @return
+     */
     private String _getXPLine(String xp) {
         StringBuilder xpLineBuilder = new StringBuilder();
         xpLineBuilder.append("XP # ");
@@ -166,6 +225,13 @@ public class GraphWriter {
         return xpLineBuilder.toString();
     }
 
+    /**
+     * Writes the content to the file
+     *
+     * @param channel
+     * @param content
+     * @throws IOException
+     */
     private void _writeToFile(FileChannel channel, String content)
             throws IOException {
         byte[] contentBytes = content.getBytes();
@@ -175,6 +241,12 @@ public class GraphWriter {
         channel.write(buffer);
     }
 
+    /**
+     * Gets the comment string
+     *
+     * @param property
+     * @return
+     */
     private String _getCommentString(GraphProperty property) {
         String comment = GraphHelper.getGraphComment(property);
         if (comment != null) {
@@ -186,42 +258,58 @@ public class GraphWriter {
         return null;
     }
 
-    public void _setSampledEdgesForGraph(String graphId, Map<String, Edge> sampledEdgesForGraph) {
+    /**
+     * Sets the sample edges for graph
+     *
+     * @param graphId
+     * @param sampledEdgesForGraph
+     */
+    public void _setSampledEdgesForGraph(String graphId, Map<Integer, Edge> sampledEdgesForGraph) {
         if (this.sample.getSampleEdges().containsKey(graphId)) {
             this.sample.getSampleEdges().put(graphId, sampledEdgesForGraph);
         }
     }
 
-//    /**
-//     * Get sorted list of nodes for a graph
-//     *
-//     * @param graphId
-//     * @return Sorted List of nodes for a graph
-//     * @author Niraj Rajbhandari <nrajbhand42@students.tntech.com>
-//     */
-//    private List<Node> _getSortedSampledNodesForGraph(String graphId) {
-//        if (this.sample.getSampleNodes().containsKey(graphId)) {
-//            List<Node> sampledNodesForGraph = new ArrayList<>(this.sample.getSampleNodes().get(graphId));
-//            Collections.sort(sampledNodesForGraph, Comparator.comparing(Node::getIdNumber));
-//            return sampledNodesForGraph;
-//        }
-//        return null;
-//    }
+    /*
+    /**
+     * Get sorted list of nodes for a graph
+     *
+     * @param graphId
+     * @return Sorted List of nodes for a graph
+     * @author Niraj Rajbhandari <nrajbhand42@students.tntech.com>
+     */
+    /*private List<Node> _getSortedSampledNodesForGraph(String graphId) {
+        if (this.sample.getSampleNodes().containsKey(graphId)) {
+            List<Node> sampledNodesForGraph = new ArrayList<>(this.sample.getSampleNodes().get(graphId));
+            Collections.sort(sampledNodesForGraph, Comparator.comparing(Node::getIdNumber));
+            return sampledNodesForGraph;
+        }
+        return null;
+    }
 
+    /**
+     * Gets sorted sampled edges for graph
+     *
+     * @param graphId
+     * @return
+     *//*
     public List<Edge> getSortedSampledEdgesForGraph(String graphId) {
         if (this.sample.getSampleEdges().containsKey(graphId)) {
-            System.out.println(this.sample);
             List<Edge> sampledEdgesForGraph = new ArrayList<>(this.sample.getSampleEdges().get(graphId).values());
 
             Collections.sort(sampledEdgesForGraph, Comparator.comparing(Edge::getSourceId).thenComparing(Edge::getTargetId));
             return sampledEdgesForGraph;
         }
         return null;
-    }
+    }*/
 
+    /**
+     * Reads the stored sample
+     *
+     * @return
+     * @throws IOException
+     */
     private Sample _readStoredSample() throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        File sampleFile = new File(helper.getAbsolutePath(Sample.SAMPLE_FILE));
-        return mapper.readValue(sampleFile, Sample.class);
+        return GraphHelper.getStoredSample();
     }
 }

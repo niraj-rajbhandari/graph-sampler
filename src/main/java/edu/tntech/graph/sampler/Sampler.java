@@ -2,6 +2,7 @@ package edu.tntech.graph.sampler;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.tntech.graph.exception.SampleNotStoredException;
 import edu.tntech.graph.helper.ConfigReader;
 import edu.tntech.graph.helper.GraphHelper;
 import edu.tntech.graph.helper.Helper;
@@ -13,11 +14,16 @@ import edu.tntech.graph.stream.StreamProcessor;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 public class Sampler {
+
+    private static ConfigReader config;
 
     private Sample sample;
 
@@ -29,13 +35,15 @@ public class Sampler {
 
     private Sampler(Integer sampleSize) {
         this.sampleSize = sampleSize;
-        this.sample = new Sample();
         this.helper = Helper.getInstance();
+
+        setSample();
     }
 
     public static Sampler getInstance() throws FileNotFoundException {
         if (instance == null) {
-            int sampleSize = Integer.parseInt(ConfigReader.getInstance().getProperty("sample-size"));
+            config = ConfigReader.getInstance();
+            int sampleSize = Integer.parseInt(config.getProperty("sample-size"));
             instance = new Sampler(sampleSize);
         }
         return instance;
@@ -49,11 +57,31 @@ public class Sampler {
         return sample;
     }
 
+    public void setSample() {
+        boolean sampleStored = Boolean.parseBoolean(config.getProperty(Sample.STORE_SAMPLE_INDEX));
+        if (sampleStored) {
+            try {
+
+                Path path = Paths.get(helper.getAbsolutePath(Sample.SAMPLE_FILE));
+                if (Files.exists(path)) {
+                    sample = GraphHelper.getStoredSample();
+                }
+
+            } catch (IOException e) {
+                throw new SampleNotStoredException("Sample is not stored");
+            } catch (SampleNotStoredException e) {
+                sample = new Sample();
+            }
+        }else if(sample==null){
+            sample = new Sample();
+        }
+    }
+
     public Map<String, Map<Integer, Node>> getSampleNodes() {
         return sample.getSampleNodes();
     }
 
-    public Map<String, Map<String, Edge>> getSampleEdges() {
+    public Map<String, Map<Integer, Edge>> getSampleEdges() {
         return sample.getSampleEdges();
     }
 
@@ -80,39 +108,44 @@ public class Sampler {
         }
     }
 
+    /**
+     * Writes the content of the sample to a json file
+     *
+     * @throws IOException
+     */
     public void writeToFile() throws IOException {
         JsonFactory factory = new JsonFactory();
         ObjectMapper mapper = new ObjectMapper(factory);
         File outputFile = new File(helper.getAbsolutePath(Sample.SAMPLE_FILE));
-        System.out.println("Sample: " + sample);
         mapper.writeValue(outputFile, sample);
         sample.reset();
     }
 
     /**
-     * Replaces a node in the sample
+     * Replaces sampled graph properties with new properties
      *
      * @param edge Replace with nodes related to the edge
      * @param time timestamp
      * @author Niraj Rajbhandari <nrajbhand42@students.tntech.edu>
      */
     private void _replaceSampleEdge(Edge edge, Integer time) {
-//        System.out.println("##################");
-//        System.out.println("Edge to sample [" + edge.getSource() + "," + edge.getTarget() + "]");
         double edgeProbability = this._getEdgeProbability();
-//        System.out.println("Probability of Edge: " + edgeProbability);
         double uniformRandomNumber = helper.getContinuousUniformRandomNumber(0, 1);
-//        System.out.println("Uniform Random Number" + uniformRandomNumber);
+        String graphId = GraphHelper.getGraphId(edge);
+        if (uniformRandomNumber <= edgeProbability && !this.sample.sampleGraphContainsEdge(edge, graphId)) {
 
-        if (uniformRandomNumber <= edgeProbability) {
+//          For sampling with replacing edges
+//            Edge edgeToReplace = this._getRandomEdge();
 
-            Edge edgeToReplace = this._getRandomEdge();
+//            if (this._removeSampleEdge(edgeToReplace)) {
+//                this._addSampleEdge(edge, true);
+//            }
 
-            if (this._removeSampleEdge(edgeToReplace)) {
-                this._addSampleEdge(edge, true);
-            }
+//          For sampling with replacing nodes
+            this._replaceSampleNode(this._getRandomNode());
+            this._replaceSampleNode(this._getRandomNode());
+            this._addSampleEdge(edge, true);
         }
-//        System.out.println("##################");
     }
 
     /**
@@ -145,8 +178,12 @@ public class Sampler {
             }
 
             if (!this.sample.sampleGraphContainsEdge(edge, graphId)) {
-                this.sample.getSampleEdges().get(graphId).put(edge.getId(), edge);
-                this._addSampleNode(edge);
+                Map<Integer, Edge> sampledEdges = this.sample.getSampleEdges().get(graphId);
+                sampledEdges.put(edge.getIdNumber(), edge);
+                if (!isReplaced) {
+                    //Add nodes if the edge is not for replacement
+                    this._addSampleNode(edge);
+                }
             }
             return true;
         }
@@ -154,21 +191,31 @@ public class Sampler {
     }
 
     /**
-     * Adds a node to the sample
+     * Adds  nodes of edge to the sample
      *
      * @param edge node to be added to the sample
      * @return boolean for successful addition of a node to the sample
      * @author Niraj Rajbhandari <nrajbhand42@students.tntech.edu>
      */
     private boolean _addSampleNode(Edge edge) {
-        String graphId = GraphHelper.getGraphId(edge);
+        return this._addSampleNode(edge.getSourceVertex()) && this._addSampleNode(edge.getTargetVertex());
+    }
+
+    /**
+     * Adds node to the sample
+     *
+     * @param node node to be added
+     * @return
+     */
+    private boolean _addSampleNode(Node node) {
+        String graphId = GraphHelper.getGraphId(node);
         if (graphId != null) {
             if (!this.sample.getSampleNodes().containsKey(graphId)) {
                 this.sample.getSampleNodes().put(graphId, new HashMap<>());
             }
+
             Map<Integer, Node> sampledNodes = this.sample.getSampleNodes().get(graphId);
-            sampledNodes.put(edge.getSourceVertex().getIdNumber(), edge.getSourceVertex());
-            sampledNodes.put(edge.getTargetVertex().getIdNumber(), edge.getTargetVertex());
+            sampledNodes.put(node.getIdNumber(), node);
             this.sample.getSampleNodes().put(graphId, sampledNodes);
 
             return true;
@@ -182,14 +229,23 @@ public class Sampler {
      * @param node Node to be removed
      * @author Niraj Rajbhandari <nrajbhand42@students.tntech.edu>
      */
-    private boolean _removeSampleNode(Node node) {
-        String graphId = GraphHelper.getGraphId(node);
+    private boolean _replaceSampleNode(Node node) {
+        if (node != null && this.sample.sampleGraphContainsNode(node, GraphHelper.getGraphId(node))) {
+            this._removeEdgesWithNode(node);
+            this.sample.getSampleNodes().get(GraphHelper.getGraphId(node)).remove(node);
+            return this._addSampleNode(node);
+        }
 
-        this._removeEdgesWithNode(node);
-        Node removedNode = this.sample.getSampleNodes().get(graphId).remove(node);
-        return removedNode.equals(node);
+        return false;
     }
 
+    /**
+     * Removes nodes in an edge [called when sampling by removing edges than nodes]
+     *
+     * @param edge
+     * @param graphId
+     * @return
+     */
     private boolean _removeNodesOfEdge(Edge edge, String graphId) {
 
         boolean status = true;
@@ -211,11 +267,17 @@ public class Sampler {
         return status;
     }
 
+    /**
+     * Removes edge and related nodes [opposite of removing nodes and then edges]
+     *
+     * @param edge
+     * @return
+     */
     private boolean _removeSampleEdge(Edge edge) {
         String graphId = GraphHelper.getGraphId(edge);
         boolean status = false;
         if (this._removeNodesOfEdge(edge, graphId)) {
-            Map<String, Edge> edgesForGraph = this.sample.getSampleEdges().get(graphId);
+            Map<Integer, Edge> edgesForGraph = this.sample.getSampleEdges().get(graphId);
 
             Edge removedEdge = edgesForGraph.remove(edge.getId());
 
@@ -236,44 +298,64 @@ public class Sampler {
      */
     private void _removeEdgesWithNode(Node node) {
         String graphId = GraphHelper.getGraphId(node);
-        Map<String, Edge> removedEdgeList = this.sample.getSampleEdges().get(graphId).entrySet().stream()
+        Map<Integer, Edge> removedEdgeList = this.sample.getSampleEdges().get(graphId).entrySet().stream()
                 .filter(e -> (!e.getValue().getTarget().equals(node.getId())
                         && !e.getValue().getSource().equals(node.getId())))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         this.sample.getSampleEdges().put(graphId, removedEdgeList);
     }
 
-    private List<String> test(Edge e) {
-        List<String> test = new ArrayList<>();
-        test.add(e.getSource());
-        test.add(e.getTarget());
-        test.add(GraphHelper.getGraphId(e));
-        return test;
-    }
-
     /**
-     * Gets Random Node to be removed for sampling
+     * Gets Random Edge to be replaced for sampling
      *
-     * @return random Node
+     * @return random Edge
      * @author Niraj Rajbhandari <nrajbhand42@students.tntech.edu>
      */
     private Edge _getRandomEdge() {
         Edge randomEdge = null;
-        while (randomEdge == null) {
-            if (!this.sample.getSampleEdges().isEmpty()) {
-                String randomGraphId = this.sample.getSampleEdges().keySet().stream()
-                        .collect(Collectors.toList())
-                        .get(ThreadLocalRandom.current().nextInt(this.sample.getSampleEdges().size()));
-                List<Edge> nodeForSelectedGraph = new ArrayList<>(this.sample.getSampleEdges().get(randomGraphId).values());
-                if (!nodeForSelectedGraph.isEmpty()) {
-                    Integer randomNodeIndex = ThreadLocalRandom.current().nextInt(nodeForSelectedGraph.size());
-                    randomEdge = nodeForSelectedGraph.get(randomNodeIndex);
+        if (!this.sample.getSampleEdges().isEmpty()) {
+            String randomGraphId;
+            List<Edge> edgeForSelectedGraph;
+            while (randomEdge == null) {
+                randomGraphId = _getRandomGraphId();
+                edgeForSelectedGraph = new ArrayList<>(this.sample.getSampleEdges().get(randomGraphId).values());
+                if (!edgeForSelectedGraph.isEmpty()) {
+                    Integer randomEdgeIndex = ThreadLocalRandom.current().nextInt(edgeForSelectedGraph.size());
+                    randomEdge = edgeForSelectedGraph.get(randomEdgeIndex);
                 }
+
             }
         }
         return randomEdge;
     }
 
+    /**
+     * Gets random node to be replaced
+     *
+     * @return random Node
+     */
+    private Node _getRandomNode() {
+        Node randomNode = null;
+        if (!this.sample.getSampleEdges().isEmpty()) {
+            String randomGraphId;
+            List<Node> nodeForSelectedGraph;
+            while (randomNode == null) {
+                randomGraphId = _getRandomGraphId();
+                nodeForSelectedGraph = new ArrayList<>(this.sample.getSampleNodes().get(randomGraphId).values());
+                if (!nodeForSelectedGraph.isEmpty()) {
+                    Integer randomNodeIndex = ThreadLocalRandom.current().nextInt(nodeForSelectedGraph.size());
+                    randomNode = nodeForSelectedGraph.get(randomNodeIndex);
+                }
+            }
+        }
+        return randomNode;
+    }
+
+    /**
+     * Gets probability of edge being added to the sample
+     *
+     * @return
+     */
     private double _getEdgeProbability() {
         try {
             return this.sampleSize / (double) StreamProcessor.getInstance().getProcessedNodeCount();
@@ -282,6 +364,17 @@ public class Sampler {
             double simpleProbability = this.getTotalSampledNodeCount() / (double) this.getTotalSampledEdgeCount();
             return Math.max(reservoirSampleProbability, simpleProbability);
         }
+    }
+
+    /**
+     * Gets random graph id from which to get random graph property to be replaced for sampling
+     *
+     * @return
+     */
+    private String _getRandomGraphId() {
+        return this.sample.getSampleNodes().keySet().stream()
+                .collect(Collectors.toList())
+                .get(ThreadLocalRandom.current().nextInt(this.sample.getSampleEdges().size()));
     }
 
 

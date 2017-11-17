@@ -25,8 +25,6 @@ public class StreamProcessor {
     private Integer streamedItemCount;
     private ObjectMapper mapper;
 
-//    private Integer processedNodeCount;
-
     private Sampler sampler;
 
 
@@ -43,7 +41,6 @@ public class StreamProcessor {
         unprocessedEdgeList = new HashMap<>();
         this.processedNodeList = new HashMap<>();
         this.resetProcessing();
-//        this.processedNodeCount = 0;
         this.sampler = Sampler.getInstance();
     }
 
@@ -71,6 +68,12 @@ public class StreamProcessor {
         this.streamedItemCount = streamedItemCount;
     }
 
+    /**
+     * Reads streamed items
+     * @param streamedItem
+     * @param windowCount
+     * @throws IOException
+     */
     public void readStreamedItem(String streamedItem, Integer windowCount) throws IOException {
         StreamItemProcessor itemProcessor = new StreamItemProcessor();
         itemProcessor.setStreamedItem(streamedItem);
@@ -81,15 +84,12 @@ public class StreamProcessor {
         }
         streamedItemCount++;
     }
-//
-//    public Node getProcessedNode(String nodeId, String graphId) {
-//        Integer graphIndex = this._getGraphNodeIndex(graphId);
-//        if (this.processedNodeList.containsKey(graphId)) {
-//            return getProcessedNodeList().get(graphId).get(nodeId);
-//        }
-//        return null;
-//    }
 
+    /**
+     * Read Streamed node
+     * @param itemProcessor
+     * @param windowCount
+     */
     private void _readStreamedNode(StreamItemProcessor itemProcessor, Integer windowCount) {
         Node streamedNode = mapper.convertValue(itemProcessor.getStreamedItem(), Node.class);
         streamedNode.setTimeStep(windowCount);
@@ -104,23 +104,30 @@ public class StreamProcessor {
         if (!this.processedNodeList.get(graphId).containsKey(streamedNode.getId())) {
             this.processedNodeList.get(graphId).put(streamedNode.getId(), streamedNode);
             this._processUnprocessedEdge(graphId, windowCount);
-//            this.processedNodeCount++;
         }
 
     }
 
-
+    /**
+     * Read streamed edge
+     * @param itemProcessor
+     * @param windowCount
+     */
     private void _readStreamedEdge(StreamItemProcessor itemProcessor, Integer windowCount) {
         Edge streamedEdge = mapper.convertValue(itemProcessor.getStreamedItem(), Edge.class);
         streamedEdge.setId(GraphHelper.getGraphIndex(streamedEdge));
         streamedEdge.setTimeStep(windowCount);
         streamedEdge.setTarget(GraphHelper.getEdgeTargetAttribute(streamedEdge));
         streamedEdge.setSource(GraphHelper.getEdgeSourceAttribute(streamedEdge));
-//        log.info(streamedEdge.toString());
         this._processEdge(streamedEdge, windowCount);
 
     }
 
+    /**
+     * Process streamed edge
+     * @param edge
+     * @param windowCount
+     */
     private void _processEdge(Edge edge, Integer windowCount) {
         String graphId = GraphHelper.getGraphId(edge);
 
@@ -131,12 +138,23 @@ public class StreamProcessor {
         }
     }
 
+    /**
+     * Sample the streamed edge
+     * @param edge
+     * @param graphId
+     * @param windowCount
+     */
     private void _sampleEdge(Edge edge, String graphId, Integer windowCount) {
         edge.setSourceVertex(processedNodeList.get(graphId).get(edge.getSource()));
         edge.setTargetVertex(processedNodeList.get(graphId).get(edge.getTarget()));
         this.sampler.createSampleGraphFromStream(edge, windowCount);
     }
 
+    /**
+     * Add unprocessed edge to list
+     * @param graphId
+     * @param edge
+     */
     private void _addUnprocessedEdge(String graphId, Edge edge) {
         if (!unprocessedEdgeList.containsKey(graphId)) {
             unprocessedEdgeList.put(graphId, new ArrayList<>());
@@ -144,6 +162,11 @@ public class StreamProcessor {
         unprocessedEdgeList.get(graphId).add(edge);
     }
 
+    /**
+     * Process the unprocessed edge
+     * @param graphId
+     * @param windowCount
+     */
     private void _processUnprocessedEdge(String graphId, Integer windowCount) {
         if (!this.unprocessedEdgeList.isEmpty() && this.unprocessedEdgeList.get(graphId) != null) {
             List<Edge> edgesToProcess = this.unprocessedEdgeList.get(graphId).stream()
@@ -157,20 +180,12 @@ public class StreamProcessor {
         }
     }
 
-//    private void _addEdge(Edge edge, String graphId) {
-//
-//        Integer graphIndex = this._getGraphEdgeIndex(graphId);
-//
-//        if (graphIndex == null) {
-//            this.processedEdgeList.add(new ArrayList<>());
-//            graphIndex = this.processedEdgeList.size() - 1;
-//            this.edgeGraphLink.put(graphId, graphIndex);
-//        }
-//        if (!this.processedEdgeList.get(graphIndex).contains(edge)) {
-//            this.processedEdgeList.get(graphIndex).add(edge);
-//        }
-//    }
-
+    /**
+     * Checks if edge is allowed to parse
+     * @param edge
+     * @param graphId
+     * @return
+     */
     private Boolean _isEdgeAllowedToParse(Edge edge, String graphId) {
         return this.processedNodeList.containsKey(graphId) && !processedNodeList.get(graphId).isEmpty()
                 && processedNodeList.get(graphId).containsKey(edge.getSource())
@@ -181,6 +196,11 @@ public class StreamProcessor {
         this.streamedItemCount = 0;
     }
 
+    /**
+     * Removes unprocessed edge after processing
+     * @param edge
+     * @param graphId
+     */
     private void _removeUnprocessedEdgeList(Edge edge, String graphId) {
         this.unprocessedEdgeList.get(graphId).remove(edge);
         if (this.unprocessedEdgeList.get(graphId).isEmpty()) {
@@ -188,23 +208,29 @@ public class StreamProcessor {
         }
     }
 
+    /**
+     * Filters processed nodes
+     * @param timeStep
+     * @return
+     */
     public Boolean filterProcessedNodes(int timeStep) {
-//        for(Map.Entry<String,List<Node>> nodes : this.processedNodeList.entrySet()){
-//            List<Node> nodeList = nodes.getValue().stream()
-//                    .filter(n->filterUnprocessedEdge(n,timeStep))
-//                    .collect(Collectors.toList());
-//            this.processedNodeList.put(nodes.getKey(),nodeList);
-//
-//        }
-        try {
-            Thread.currentThread().sleep(30 * 1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        for(Map.Entry<String,Map<String,Node>> nodes : this.processedNodeList.entrySet()){
+            Map<String,Node> graphNodes = nodes.getValue().entrySet().stream()
+                    .filter(n->filterUnprocessedEdge(n.getValue(),timeStep))
+                    .collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue));
+            this.processedNodeList.put(nodes.getKey(),graphNodes);
+
         }
 
         return true;
     }
 
+    /**
+     * Filters unprocessed nodes
+     * @param node
+     * @param timeStep
+     * @return
+     */
     public boolean filterUnprocessedEdge(Node node, int timeStep) {
         if ((timeStep - node.getTimeStep()) > 10) {
             String graphId = GraphHelper.getGraphId(node);
@@ -217,6 +243,10 @@ public class StreamProcessor {
         return true;
     }
 
+    /**
+     * get processed nodes count
+     * @return
+     */
     public Integer getProcessedNodeCount() {
         return this.processedNodeList.values().stream().mapToInt(Map::size).sum();
     }
