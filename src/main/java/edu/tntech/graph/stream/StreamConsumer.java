@@ -61,7 +61,7 @@ public class StreamConsumer {
             // Window Limit reached
             // TODO: Select the process size. How ? static value or something related to
             boolean windowSizeConsumed = newDeliveryTag % consumptionLimitPerWindow == 0;
-            boolean canSampleWindow = ((newDeliveryTag.intValue() % Sampler.getInstance().getSampleSize() == 0 || count == 60)
+            boolean canSampleWindow = ((windowSizeConsumed || count == 60)
                     && newDeliveryTag != oldDeliveryTag);
             if (!channel.isOpen()) {
                 connection.close();
