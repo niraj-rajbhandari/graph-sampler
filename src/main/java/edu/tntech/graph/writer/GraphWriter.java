@@ -15,6 +15,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -27,12 +28,12 @@ public class GraphWriter {
 
     public GraphWriter(boolean isStored) throws IOException {
         if (isStored) {
+            log.log(Level.FINE,"Reading sample from stored file");
             sample = _readStoredSample();
         } else {
+            log.log(Level.FINE,"Getting sample from sampler");
             sample = Sampler.getInstance().getSample();
         }
-
-        log.info("sampledEdges: " + sample.getSampleEdges());
     }
 
     /**
@@ -41,6 +42,7 @@ public class GraphWriter {
      * @throws IOException
      */
     public void write() throws IOException {
+        log.log(Level.FINE,"Writing the graph to the file");
         String graphFile = Helper.getInstance()
                 .getAbsolutePath(ConfigReader.getInstance().getProperty(GRAPH_FILE_PROPERTY_KEY));
         try (RandomAccessFile fileStream = new RandomAccessFile(graphFile, "rw");
@@ -57,6 +59,7 @@ public class GraphWriter {
      * @throws IOException
      */
     private void _reset() throws IOException {
+        log.log(Level.FINE,"Resetting the graph writer sample");
         sample = null;
 
         //Setting the sample from the file for next time window
