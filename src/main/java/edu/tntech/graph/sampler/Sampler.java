@@ -58,6 +58,13 @@ public class Sampler {
     }
 
     public void setSample() {
+        System.out.println("=====================");
+        System.out.println("=====================");
+        System.out.println("=====================");
+        System.out.println("set sample is called");
+        System.out.println("=====================");
+        System.out.println("=====================");
+        System.out.println("=====================");
         boolean sampleStored = Boolean.parseBoolean(config.getProperty(Sample.STORE_SAMPLE_INDEX));
         if (sampleStored) {
             try {
@@ -65,14 +72,17 @@ public class Sampler {
                 Path path = Paths.get(helper.getAbsolutePath(Sample.SAMPLE_FILE));
                 if (Files.exists(path)) {
                     sample = GraphHelper.getStoredSample();
+                }else{
+                    throw new SampleNotStoredException("Sample is not stored");
                 }
-
             } catch (IOException e) {
                 throw new SampleNotStoredException("Sample is not stored");
             } catch (SampleNotStoredException e) {
+                System.out.println("sample is not stored");
                 sample = new Sample();
             }
-        }else if(sample==null){
+        } else if (sample == null) {
+            System.out.println("sample is null");
             sample = new Sample();
         }
     }
@@ -86,11 +96,19 @@ public class Sampler {
     }
 
     public Integer getTotalSampledNodeCount() {
-        return this.getSampleNodes().values().stream().mapToInt(Map::size).sum();
+        if (sample != null) {
+            return this.getSampleNodes().values().stream().mapToInt(Map::size).sum();
+        }
+
+        return 0;
+
     }
 
     public Integer getTotalSampledEdgeCount() {
-        return this.getSampleEdges().values().stream().mapToInt(Map::size).sum();
+        if (sample != null)
+            return this.getSampleEdges().values().stream().mapToInt(Map::size).sum();
+
+        return 0;
     }
 
     /**
