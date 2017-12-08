@@ -10,7 +10,7 @@ public class Sample {
     public static final String SAMPLE_FILE = "sample.json";
 
     private Map<String, Map<Integer, Node>> sampleNodes;
-    private Map<String, Map<Integer,Edge>> sampleEdges;
+    private Map<String, Map<Integer, Edge>> sampleEdges;
 
     public Map<String, Map<Integer, Node>> getSampleNodes() {
         return sampleNodes;
@@ -20,26 +20,39 @@ public class Sample {
         this.sampleNodes = sampleNodes;
     }
 
-    public Map<String, Map<Integer,Edge>> getSampleEdges() {
+    public Map<String, Map<Integer, Edge>> getSampleEdges() {
         return sampleEdges;
     }
 
-    public void setSampleEdges(Map<String, Map<Integer,Edge>> sampleEdges) {
+    public void setSampleEdges(Map<String, Map<Integer, Edge>> sampleEdges) {
         this.sampleEdges = sampleEdges;
     }
 
     public Sample() {
-       this.reset();
+        this.reset();
     }
 
     public boolean sampleGraphContainsNode(Node node, String graphId) {
-        return this.sampleNodes.containsKey(graphId) && this.sampleNodes.get(graphId).containsKey(node.getId());
+        Integer nodeId = Integer.parseInt(GraphHelper.getGraphIndex(node));
+        boolean sampleNodeHasGraph = this.sampleNodes != null && this.sampleNodes.containsKey(graphId);
+        boolean sampleNodeGraphHasNode = sampleNodeHasGraph && this.sampleNodes.get(graphId).containsKey(nodeId);
+        return sampleNodeGraphHasNode;
 
     }
 
-    public boolean sampleGraphContainsEdge(Edge edge, String graphId){
-        String edgeId = GraphHelper.getGraphIndex(edge);
-        return this.sampleEdges.containsKey(graphId) && this.sampleEdges.get(graphId).containsKey(edgeId);
+    public boolean sampleGraphContainsEdge(Edge edge, String graphId) {
+        Integer edgeId = Integer.parseInt(GraphHelper.getGraphIndex(edge));
+        return this.sampleEdges != null && this.sampleEdges.containsKey(graphId) && this.sampleEdges.get(graphId).containsKey(edgeId);
+    }
+
+    public Node getSampledGraphNode(String nodeId, String graphId) {
+        Integer nodeIdNumber = Integer.parseInt(nodeId);
+        if (this.getSampleNodes().containsKey(graphId) && this.getSampleNodes().get(graphId).containsKey(nodeIdNumber)) {
+            return this.getSampleNodes().get(graphId).get(nodeIdNumber);
+        } else {
+            return null;
+        }
+
     }
 
     public void reset() {
@@ -50,7 +63,8 @@ public class Sample {
     @Override
     public String toString() {
         return "Sample{" +
-                "sampleNodes=" + sampleNodes +
+                "sampleNodes=" + sampleNodes.size() + ", " +
+                "sampleEdges=" + sampleEdges.size() +
                 '}';
     }
 }

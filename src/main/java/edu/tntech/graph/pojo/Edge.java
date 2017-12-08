@@ -3,11 +3,7 @@ package edu.tntech.graph.pojo;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import edu.tntech.graph.helper.GraphHelper;
 
-import java.util.Objects;
-
 public class Edge extends GraphProperty {
-
-    public static final String EDGE_INDEX = "edge";
 
     private String source;
     private String target;
@@ -74,11 +70,6 @@ public class Edge extends GraphProperty {
         return "{" +
                 "id='" + id + '\'' +
                 "label='" + GraphHelper.getGraphLabel(this) + "'" +
-//                ", source='" + source + '\'' +
-//                ", target='" + target + '\'' +
-//                ", directed=" + directed +
-////                ", timeStamp='" + timeStamp + '\'' +
-//                ", attributes=" + attributes +
                 '}';
     }
 
@@ -95,7 +86,7 @@ public class Edge extends GraphProperty {
 
     @Override
     public int hashCode() {
-//        return GraphHelper.getGraphIndex(this).hashCode();
-        return Objects.hash(super.hashCode(), GraphHelper.getEdgeSourceAttribute(this), GraphHelper.getEdgeTargetAttribute(this), GraphHelper.getGraphId(this));
+        return this.getId().hashCode();
+//        return Objects.hash(super.hashCode(), GraphHelper.getEdgeSourceAttribute(this), GraphHelper.getEdgeTargetAttribute(this), GraphHelper.getGraphId(this));
     }
 }

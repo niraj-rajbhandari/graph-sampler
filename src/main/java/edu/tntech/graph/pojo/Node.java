@@ -5,8 +5,6 @@ public class Node extends GraphProperty {
     public String toString() {
         return "{" +
                 "id='" + id + '\'' +
-//                ", attributes=" + attributes +
-//                ", timeStamp='" + timeStamp + '\'' +
                 '}';
     }
 }
