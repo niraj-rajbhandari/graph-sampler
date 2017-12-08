@@ -1,13 +1,13 @@
 package edu.tntech.graph.enumerator;
 
-public enum LOG_LEVEL {
+public enum LogLevel {
     INFO("info"),
     ERROR("error"),
     DEBUG("debug");
-    
+
     private String level;
 
-    private LOG_LEVEL(String level) {
+    private LogLevel(String level) {
         this.level = level;
     }
 
