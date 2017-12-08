@@ -1,5 +1,5 @@
 group 'edu.tntech'
-version '1.0'
+//version '1.0'
 
 apply plugin: 'java'
 apply plugin: 'application'
@@ -23,6 +23,7 @@ jar {
                 'Main-Class': 'edu.tntech.graph.Main'
         )
     }
+    baseName 'graph-sampler'
     from {
         configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
     }
@@ -34,7 +35,7 @@ repositories {
 
 task copyJar(type: Copy) {
     from jar // here it automatically reads jar file produced from jar task
-    into "/Users/destroyed/workspace/research/stream-generator-app/"
+    into "/Users/destroyed/workspace/research/gbad-stream/"
 }
 
 task buildApp(dependsOn: [clean, jar, copyJar])
