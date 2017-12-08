@@ -70,6 +70,7 @@ public class StreamProcessor {
 
     /**
      * Reads streamed items
+     *
      * @param streamedItem
      * @param windowCount
      * @throws IOException
@@ -87,6 +88,7 @@ public class StreamProcessor {
 
     /**
      * Read Streamed node
+     *
      * @param itemProcessor
      * @param windowCount
      */
@@ -98,10 +100,7 @@ public class StreamProcessor {
         streamedNode.setId(nodeId);
 
         String graphId = GraphHelper.getGraphId(streamedNode);
-        if (!this.processedNodeList.containsKey(graphId)) {
-            this.processedNodeList.put(graphId, new HashMap<>());
-        }
-        if (!this.processedNodeList.get(graphId).containsKey(streamedNode.getId())) {
+        if (!this._isNodeProcessed(streamedNode, graphId, windowCount)) {
             this.processedNodeList.get(graphId).put(streamedNode.getId(), streamedNode);
             this._processUnprocessedEdge(graphId, windowCount);
         }
@@ -110,6 +109,7 @@ public class StreamProcessor {
 
     /**
      * Read streamed edge
+     *
      * @param itemProcessor
      * @param windowCount
      */
@@ -125,6 +125,7 @@ public class StreamProcessor {
 
     /**
      * Process streamed edge
+     *
      * @param edge
      * @param windowCount
      */
@@ -140,6 +141,7 @@ public class StreamProcessor {
 
     /**
      * Sample the streamed edge
+     *
      * @param edge
      * @param graphId
      * @param windowCount
@@ -152,6 +154,7 @@ public class StreamProcessor {
 
     /**
      * Add unprocessed edge to list
+     *
      * @param graphId
      * @param edge
      */
@@ -164,6 +167,7 @@ public class StreamProcessor {
 
     /**
      * Process the unprocessed edge
+     *
      * @param graphId
      * @param windowCount
      */
@@ -182,6 +186,7 @@ public class StreamProcessor {
 
     /**
      * Checks if edge is allowed to parse
+     *
      * @param edge
      * @param graphId
      * @return
@@ -198,6 +203,7 @@ public class StreamProcessor {
 
     /**
      * Removes unprocessed edge after processing
+     *
      * @param edge
      * @param graphId
      */
@@ -210,15 +216,17 @@ public class StreamProcessor {
 
     /**
      * Filters processed nodes
+     *
      * @param timeStep
      * @return
      */
     public Boolean filterProcessedNodes(int timeStep) {
-        for(Map.Entry<String,Map<String,Node>> nodes : this.processedNodeList.entrySet()){
-            Map<String,Node> graphNodes = nodes.getValue().entrySet().stream()
-                    .filter(n->filterUnprocessedEdge(n.getValue(),timeStep))
-                    .collect(Collectors.toMap(Map.Entry::getKey,Map.Entry::getValue));
-            this.processedNodeList.put(nodes.getKey(),graphNodes);
+        log.info("filterd process called");
+        for (Map.Entry<String, Map<String, Node>> nodes : this.processedNodeList.entrySet()) {
+            Map<String, Node> graphNodes = nodes.getValue().entrySet().stream()
+                    .filter(n -> filterUnprocessedEdge(n.getValue(), timeStep))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            this.processedNodeList.put(nodes.getKey(), graphNodes);
 
         }
 
@@ -227,6 +235,7 @@ public class StreamProcessor {
 
     /**
      * Filters unprocessed nodes
+     *
      * @param node
      * @param timeStep
      * @return
@@ -245,10 +254,24 @@ public class StreamProcessor {
 
     /**
      * get processed nodes count
+     *
      * @return
      */
     public Integer getProcessedNodeCount() {
         return this.processedNodeList.values().stream().mapToInt(Map::size).sum();
+    }
+
+    private boolean _isNodeProcessed(Node node, String graphId, Integer timeStep) {
+
+        if (!this.processedNodeList.containsKey(graphId)) {
+            this.processedNodeList.put(graphId, new HashMap<>());
+        }
+        if (this.processedNodeList.get(graphId).containsKey(node.getId())) {
+            //setting the latest time-step when the node appears
+            node.setTimeStep(timeStep);
+            return true;
+        }
+        return false;
     }
 
 }

@@ -2,6 +2,7 @@ package edu.tntech.graph.sampler;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.tntech.graph.enumerator.FileType;
 import edu.tntech.graph.exception.SampleNotStoredException;
 import edu.tntech.graph.helper.ConfigReader;
 import edu.tntech.graph.helper.GraphHelper;
@@ -17,12 +18,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class Sampler {
 
+    private static final Logger LOGGER = Logger.getLogger(Sampler.class.getName());
     private static ConfigReader config;
 
     private Sample sample;
@@ -33,14 +39,15 @@ public class Sampler {
 
     private Helper helper;
 
-    private Sampler(Integer sampleSize) {
+    private Sampler(Integer sampleSize) throws FileNotFoundException {
         this.sampleSize = sampleSize;
         this.helper = Helper.getInstance();
-
+        LOGGER.setLevel(helper.getLogLevel(config));
         setSample();
     }
 
     public static Sampler getInstance() throws FileNotFoundException {
+        LOGGER.fine("Creating instance of Sampler");
         if (instance == null) {
             config = ConfigReader.getInstance();
             int sampleSize = Integer.parseInt(config.getProperty("sample-size"));
@@ -58,31 +65,24 @@ public class Sampler {
     }
 
     public void setSample() {
-        System.out.println("=====================");
-        System.out.println("=====================");
-        System.out.println("=====================");
-        System.out.println("set sample is called");
-        System.out.println("=====================");
-        System.out.println("=====================");
-        System.out.println("=====================");
+        LOGGER.info("Setting Sample");
         boolean sampleStored = Boolean.parseBoolean(config.getProperty(Sample.STORE_SAMPLE_INDEX));
         if (sampleStored) {
             try {
-
-                Path path = Paths.get(helper.getAbsolutePath(Sample.SAMPLE_FILE));
+                Path path = Paths.get(helper.getAbsolutePath(Sample.SAMPLE_FILE, FileType.DATA));
                 if (Files.exists(path)) {
                     sample = GraphHelper.getStoredSample();
-                }else{
+                } else {
                     throw new SampleNotStoredException("Sample is not stored");
                 }
             } catch (IOException e) {
-                throw new SampleNotStoredException("Sample is not stored");
+                LOGGER.severe(e.getMessage() + "\n Sample is Not stored");
+                sample = new Sample();
             } catch (SampleNotStoredException e) {
-                System.out.println("sample is not stored");
+                LOGGER.severe(e.getMessage());
                 sample = new Sample();
             }
         } else if (sample == null) {
-            System.out.println("sample is null");
             sample = new Sample();
         }
     }
@@ -119,7 +119,7 @@ public class Sampler {
      * @author Niraj Rajbhandari <nrajbhand@students.tntech.edu>
      */
     public void createSampleGraphFromStream(Edge edge, Integer time) {
-        if (this.getTotalSampledNodeCount() < this.sampleSize) {
+        if (this.getTotalSampledNodeCount() < this.sampleSize || this._areNodeInSample(edge)) {
             this._addSampleEdge(edge, false);
         } else {
             this._replaceSampleEdge(edge, time);
@@ -132,9 +132,11 @@ public class Sampler {
      * @throws IOException
      */
     public void writeToFile() throws IOException {
+        LOGGER.fine("Writing to the file");
+        LOGGER.info("Sample Size:" + this.getTotalSampledNodeCount());
         JsonFactory factory = new JsonFactory();
         ObjectMapper mapper = new ObjectMapper(factory);
-        File outputFile = new File(helper.getAbsolutePath(Sample.SAMPLE_FILE));
+        File outputFile = new File(helper.getAbsolutePath(Sample.SAMPLE_FILE, FileType.DATA));
         mapper.writeValue(outputFile, sample);
         sample.reset();
     }
@@ -393,6 +395,13 @@ public class Sampler {
         return this.sample.getSampleNodes().keySet().stream()
                 .collect(Collectors.toList())
                 .get(ThreadLocalRandom.current().nextInt(this.sample.getSampleEdges().size()));
+    }
+
+    private Boolean _areNodeInSample(Edge edge) {
+        String graphId = GraphHelper.getGraphId(edge);
+        
+        return (this.sample.sampleGraphContainsNode(edge.getSourceVertex(), graphId)
+                && this.sample.sampleGraphContainsNode(edge.getTargetVertex(), graphId));
     }
 
 
