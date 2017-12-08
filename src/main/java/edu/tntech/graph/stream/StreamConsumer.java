@@ -16,12 +16,26 @@ public class StreamConsumer {
 
     private static final String PROCESSED_ITEM_SIZE_PROPERTY = "processed-item-size";
     private static final String MESSAGE_QUEUE_PROPERTY = "message-queue";
+    private static final String GBAD_MESSAGE_QUEUE_PROPERTY = "gbad-message-queue";
     private static final String QUEUE_CONNECTION_HOST_PROPERTY = "connection-host";
+    private static final String QUEUE_USERNAME_PROPERTY = "rabbitmq-username";
+    private static final String QUEUE_PASSWORD_PROPERTY = "rabbitmq-password";
+    private static final String QUEUE_VIRTUAL_HOST_PROPERTY = "rabbitmq-vhost";
+    private static final String GRAPH_EXCHANGE_PROPERTY = "graph-exchange";
+    private static final String GBAD_EXCHANGE_PROPERTY = "gbad-exchange";
+    private static final String WINDOW_TIME_PROPERTY = "window-time";
+
+    private static final String EXCHANGE_TYPE = "direct";
+    private static final Integer SINGLE_GBAD_NOTIFICATION = 1;
+    private static final Integer SECOND_IN_MILLIS = 1000;
+
     private ConfigReader config;
     private Long newDeliveryTag;
     private Long oldDeliveryTag;
     private static StreamConsumer instance = null;
+
     private Connection connection;
+    private Channel gbadChannel;
 
     private Integer windowCount;
     private Integer consumptionLimitPerWindow;
@@ -35,6 +49,9 @@ public class StreamConsumer {
         Float processedItemConfig = Float.parseFloat(config.getProperty(PROCESSED_ITEM_SIZE_PROPERTY));
         Double processWindowSize = Math.ceil(Sampler.getInstance().getSampleSize() * processedItemConfig);
         consumptionLimitPerWindow = processWindowSize.intValue();
+
+        System.out.println("Sample size:" + Sampler.getInstance().getSampleSize());
+        System.out.println(consumptionLimitPerWindow + ": consumption limit per window");
     }
 
     public static StreamConsumer getInstance() throws IOException {
@@ -54,9 +71,9 @@ public class StreamConsumer {
      */
     public void consume() throws IOException, TimeoutException, InterruptedException {
         Integer count = 1;
-
+        Integer windowTime = Integer.parseInt(config.getProperty(WINDOW_TIME_PROPERTY));
         Channel channel = this._getChannel();
-
+        _setGBADChannel();
         while (true) {
             // Window Limit reached
             // TODO: Select the process size. How ? static value or something related to
@@ -68,8 +85,8 @@ public class StreamConsumer {
                 break;
             } else if (canSampleWindow) {
                 try {
-                    StreamProcessor streamProcessor = StreamProcessor.getInstance();
-                    CompletableFuture<Boolean> filterProcessedNode = CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
+//                    StreamProcessor streamProcessor = StreamProcessor.getInstance();
+//                    CompletableFuture<Boolean> filterProcessedNode = CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
                     boolean storeSample = Boolean.parseBoolean(config.getProperty(Sample.STORE_SAMPLE_INDEX));
                     this._resetConsumedItems();
                     if (storeSample) {
@@ -78,19 +95,22 @@ public class StreamConsumer {
                     GraphWriter graphWriter = new GraphWriter(storeSample);
                     graphWriter.write();
 
-                    while (!filterProcessedNode.isDone()) ;
+//                    while (!filterProcessedNode.isDone()) ;
 
                     channel.basicAck(newDeliveryTag, true);
                     oldDeliveryTag = newDeliveryTag;
                     windowCount++;
                     count = 0;
+                    _notifyGBADRunner(Long.toString(newDeliveryTag));
                 } catch (Exception e) {
                     e.printStackTrace();
+                    channel.close();
+                    connection.close();
                     break;
                 }
             }
             count++;
-            Thread.currentThread().sleep(1000);
+            Thread.currentThread().sleep(windowTime * SECOND_IN_MILLIS);
         }
     }
 
@@ -134,13 +154,47 @@ public class StreamConsumer {
      */
     private Channel _getChannel() throws TimeoutException, IOException {
         String messageQueue = config.getProperty(MESSAGE_QUEUE_PROPERTY);
-        ConnectionFactory factory = new ConnectionFactory();
-        factory.setHost(config.getProperty(QUEUE_CONNECTION_HOST_PROPERTY));
-        connection = factory.newConnection();
+        String exchange = config.getProperty(GRAPH_EXCHANGE_PROPERTY);
+        _setConnection();
         Channel channel = connection.createChannel();
-        channel.basicQos(Sampler.getInstance().getSampleSize(), true);
+        channel.basicQos(consumptionLimitPerWindow);
+        channel.exchangeDeclare(exchange, EXCHANGE_TYPE);
         channel.queueDeclare(messageQueue, false, false, false, null);
+        channel.queueBind(messageQueue, exchange, messageQueue);
         channel.basicConsume(messageQueue, false, _getConsumer(channel));
         return channel;
+    }
+
+    private void _setConnection() throws TimeoutException, IOException {
+        if (connection == null) {
+            ConnectionFactory factory = new ConnectionFactory();
+            factory.setUsername(config.getProperty(QUEUE_USERNAME_PROPERTY));
+            factory.setPassword(config.getProperty(QUEUE_PASSWORD_PROPERTY));
+            factory.setHost(config.getProperty(QUEUE_CONNECTION_HOST_PROPERTY));
+            factory.setVirtualHost(config.getProperty(QUEUE_VIRTUAL_HOST_PROPERTY));
+            int oneHourHeartBeat = 600 * 61;
+            factory.setRequestedHeartbeat(oneHourHeartBeat);
+            connection = factory.newConnection();
+        }
+
+    }
+
+    private void _setGBADChannel() throws TimeoutException, IOException {
+        if (gbadChannel == null) {
+            String messageQueue = config.getProperty(GBAD_MESSAGE_QUEUE_PROPERTY);
+            _setConnection();
+            String exchange = config.getProperty(GBAD_EXCHANGE_PROPERTY);
+            gbadChannel = connection.createChannel();
+            gbadChannel.exchangeDeclare(exchange, EXCHANGE_TYPE);
+            gbadChannel.basicQos(SINGLE_GBAD_NOTIFICATION);
+            gbadChannel.queueDeclare(messageQueue, false, false, false, null);
+            gbadChannel.queueBind(messageQueue, exchange, messageQueue);
+        }
+    }
+
+    private void _notifyGBADRunner(String message) throws IOException {
+        String messageQueue = config.getProperty(GBAD_MESSAGE_QUEUE_PROPERTY);
+        String exchange = config.getProperty(GBAD_EXCHANGE_PROPERTY);
+        gbadChannel.basicPublish(exchange, messageQueue, null, message.getBytes());
     }
 }
