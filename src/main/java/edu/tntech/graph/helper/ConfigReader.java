@@ -1,5 +1,6 @@
 package edu.tntech.graph.helper;
 
+import edu.tntech.graph.enumerator.FileType;
 import edu.tntech.graph.exception.PropertyNotFoundException;
 
 import java.io.FileInputStream;
@@ -18,7 +19,7 @@ public class ConfigReader {
 
     ConfigReader() throws FileNotFoundException {
         Helper helper = Helper.getInstance();
-        try (InputStream inputStream = new FileInputStream(helper.getAbsolutePath(CONFIG_FILE))) {
+        try (InputStream inputStream = new FileInputStream(helper.getAbsolutePath(CONFIG_FILE, FileType.OTHERS))) {
             this.properties = new Properties();
             if (inputStream == null) {
                 throw new FileNotFoundException("Config File not found");
