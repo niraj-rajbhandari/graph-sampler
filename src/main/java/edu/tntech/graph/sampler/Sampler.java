@@ -31,6 +31,9 @@ public class Sampler {
     private static final Logger LOGGER = Logger.getLogger(Sampler.class.getName());
     private static ConfigReader config;
 
+    private Integer lowerFrequency;
+    private Integer higherFrequency;
+
     private Sample sample;
 
     private Integer sampleSize;
@@ -40,6 +43,9 @@ public class Sampler {
     private Helper helper;
 
     private Sampler(Integer sampleSize) throws FileNotFoundException {
+        lowerFrequency = Integer.parseInt(config.getProperty(Sample.LOW_FREQUENCY));
+        higherFrequency = Integer.parseInt(config.getProperty(Sample.HIGH_FREQUENCY));
+//        higherFrequency = lowerFrequency + Sample.FREQUENCY_RANGE;
         this.sampleSize = sampleSize;
         this.helper = Helper.getInstance();
         LOGGER.setLevel(helper.getLogLevel(config));
@@ -119,7 +125,8 @@ public class Sampler {
      * @author Niraj Rajbhandari <nrajbhand@students.tntech.edu>
      */
     public void createSampleGraphFromStream(Edge edge, Integer time) {
-        if (this.getTotalSampledNodeCount() < this.sampleSize || this._areNodeInSample(edge)) {
+
+        if (this._areNodesInSample(edge) || (this.getTotalSampledNodeCount() < this.sampleSize && !this._isEdgeTypeNotTooFrequent(edge, time))) {
             this._addSampleEdge(edge, false);
         } else {
             this._replaceSampleEdge(edge, time);
@@ -397,11 +404,49 @@ public class Sampler {
                 .get(ThreadLocalRandom.current().nextInt(this.sample.getSampleEdges().size()));
     }
 
-    private Boolean _areNodeInSample(Edge edge) {
+    private Boolean _areNodesInSample(Edge edge) {
         String graphId = GraphHelper.getGraphId(edge);
-        
+
         return (this.sample.sampleGraphContainsNode(edge.getSourceVertex(), graphId)
                 && this.sample.sampleGraphContainsNode(edge.getTargetVertex(), graphId));
+    }
+
+    /**
+     * Counts edge being streamed
+     *
+     * @param edgeType
+     * @param timeStep
+     * @return
+     */
+    private Integer _countStreamedEdgeType(String edgeType, Integer timeStep) {
+        if (timeStep % 10 == 0) {
+            this.sample.setSampledEdgeTypeCount(new HashMap<>());
+        }
+
+        if (!this.sample.getSampledEdgeTypeCount().containsKey(edgeType)) {
+            this.sample.getSampledEdgeTypeCount().put(edgeType, 0);
+        }
+
+        Integer edgeTypeCount = this.sample.getSampledEdgeTypeCount().get(edgeType) + 1;
+        this.sample.getSampledEdgeTypeCount().put(edgeType, edgeTypeCount);
+
+        return this.sample.getSampledEdgeTypeCount().get(edgeType);
+    }
+
+    /**
+     * Checks if edge is in the middle range of frequency
+     *
+     * @param edge
+     * @param timeStep
+     * @return
+     */
+    private boolean _isEdgeTypeNotTooFrequent(Edge edge, Integer timeStep) {
+
+        String edgeType = GraphHelper.getGraphLabel(edge);
+        Integer edgeTypeCount = this._countStreamedEdgeType(edgeType, timeStep);
+
+
+        return lowerFrequency < edgeTypeCount && higherFrequency > edgeTypeCount;
     }
 
 

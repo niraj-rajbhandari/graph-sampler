@@ -31,37 +31,34 @@ public class StreamItemProcessor {
         this.streamedItemType = streamedItemType;
     }
 
-    public void setStreamedItem(String streamedItem) throws IOException{
-        JsonNode rootNode = mapper.readTree(streamedItem);
-        Iterator<Map.Entry<String, JsonNode>> fieldsIterator = rootNode.fields();
-        int count = 1;
-        while(fieldsIterator.hasNext() && count ==1){
-            Map.Entry<String, JsonNode> field = fieldsIterator.next();
-            if(field.getKey().equals(GraphPropertyType.EDGE.getItemType()))
-                streamedItemType = GraphPropertyType.EDGE;
-            else
-                streamedItemType = GraphPropertyType.NODE;
-            this.streamedItem = field.getValue();
-            count++;
-        }
-    }
-
 //    public void setStreamedItem(String streamedItem) throws IOException{
 //        JsonNode rootNode = mapper.readTree(streamedItem);
 //        Iterator<Map.Entry<String, JsonNode>> fieldsIterator = rootNode.fields();
-//        while(fieldsIterator.hasNext()){
-////            Map.Entry<String, JsonNode> field = fieldsIterator.next();
-//            if(rootNode.has("source")){
+//        int count = 1;
+//        while(fieldsIterator.hasNext() && count ==1){
+//            Map.Entry<String, JsonNode> field = fieldsIterator.next();
+//            if(field.getKey().equals(GraphPropertyType.EDGE.getItemType()))
 //                streamedItemType = GraphPropertyType.EDGE;
-//            }
 //            else
 //                streamedItemType = GraphPropertyType.NODE;
-//
-////            this.streamedItem = field.getValue();
-//            this.streamedItem = rootNode;
-//            break;
+//            this.streamedItem = field.getValue();
+//            count++;
 //        }
-//
-//
 //    }
+
+    public void setStreamedItem(String streamedItem) throws IOException{
+        JsonNode rootNode = mapper.readTree(streamedItem);
+        Iterator<Map.Entry<String, JsonNode>> fieldsIterator = rootNode.fields();
+        while(fieldsIterator.hasNext()){
+            if(rootNode.has("source")){
+                streamedItemType = GraphPropertyType.EDGE;
+            }
+            else
+                streamedItemType = GraphPropertyType.NODE;
+            this.streamedItem = rootNode;
+            break;
+        }
+
+
+    }
 }

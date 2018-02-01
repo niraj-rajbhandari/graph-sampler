@@ -8,9 +8,14 @@ import java.util.Map;
 public class Sample {
     public static final String STORE_SAMPLE_INDEX = "store-sample";
     public static final String SAMPLE_FILE = "sample.json";
+    public static final String LOW_FREQUENCY = "low-frequency";
+    public static final String HIGH_FREQUENCY = "high-frequency";
+    public static final Integer FREQUENCY_RANGE = 20;
 
     private Map<String, Map<Integer, Node>> sampleNodes;
     private Map<String, Map<Integer, Edge>> sampleEdges;
+
+    private Map<String,Integer> sampledEdgeTypeCount;
 
     public Map<String, Map<Integer, Node>> getSampleNodes() {
         return sampleNodes;
@@ -26,6 +31,14 @@ public class Sample {
 
     public void setSampleEdges(Map<String, Map<Integer, Edge>> sampleEdges) {
         this.sampleEdges = sampleEdges;
+    }
+
+    public Map<String, Integer> getSampledEdgeTypeCount() {
+        return sampledEdgeTypeCount;
+    }
+
+    public void setSampledEdgeTypeCount(Map<String, Integer> sampledEdgeTypeCount) {
+        this.sampledEdgeTypeCount = sampledEdgeTypeCount;
     }
 
     public Sample() {

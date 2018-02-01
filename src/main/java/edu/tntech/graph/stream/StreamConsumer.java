@@ -85,8 +85,8 @@ public class StreamConsumer {
                 break;
             } else if (canSampleWindow) {
                 try {
-//                    StreamProcessor streamProcessor = StreamProcessor.getInstance();
-//                    CompletableFuture<Boolean> filterProcessedNode = CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
+                    StreamProcessor streamProcessor = StreamProcessor.getInstance();
+                    CompletableFuture<Boolean> filterProcessedNode = CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
                     boolean storeSample = Boolean.parseBoolean(config.getProperty(Sample.STORE_SAMPLE_INDEX));
                     this._resetConsumedItems();
                     if (storeSample) {
@@ -94,8 +94,8 @@ public class StreamConsumer {
                     }
                     GraphWriter graphWriter = new GraphWriter(storeSample);
                     graphWriter.write();
-
-//                    while (!filterProcessedNode.isDone()) ;
+                    System.out.println("Sampled edge count: " + Sampler.getInstance().getSample().getSampledEdgeTypeCount());
+                    while (!filterProcessedNode.isDone()) ;
 
                     channel.basicAck(newDeliveryTag, true);
                     oldDeliveryTag = newDeliveryTag;
@@ -133,10 +133,11 @@ public class StreamConsumer {
         return new DefaultConsumer(channel) {
             @Override
             public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) throws IOException {
+                String streamedItem = new String(body, StandardCharsets.UTF_8);
                 try {
                     StreamProcessor processor = StreamProcessor.getInstance();
                     newDeliveryTag = envelope.getDeliveryTag();
-                    String streamedItem = new String(body, StandardCharsets.UTF_8);
+
                     processor.readStreamedItem(streamedItem, windowCount);
                 } catch (Exception e) {
                     e.printStackTrace();
