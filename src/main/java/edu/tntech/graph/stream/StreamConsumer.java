@@ -2,6 +2,7 @@ package edu.tntech.graph.stream;
 
 import com.rabbitmq.client.*;
 import edu.tntech.graph.helper.ConfigReader;
+import edu.tntech.graph.helper.Helper;
 import edu.tntech.graph.pojo.Sample;
 import edu.tntech.graph.sampler.Sampler;
 import edu.tntech.graph.writer.GraphWriter;
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeoutException;
 
 public class StreamConsumer {
 
+    private static final String CONSUMPTION_COMPLETED_MESSAGE = "done";
     private static final String PROCESSED_ITEM_SIZE_PROPERTY = "processed-item-size";
     private static final String MESSAGE_QUEUE_PROPERTY = "message-queue";
     private static final String GBAD_MESSAGE_QUEUE_PROPERTY = "gbad-message-queue";
@@ -29,6 +31,8 @@ public class StreamConsumer {
     private static final Integer SINGLE_GBAD_NOTIFICATION = 1;
     private static final Integer SECOND_IN_MILLIS = 1000;
 
+
+    private boolean consumptionCompleted = false;
     private ConfigReader config;
     private Long newDeliveryTag;
     private Long oldDeliveryTag;
@@ -70,20 +74,26 @@ public class StreamConsumer {
      * @author Niraj Rajbhandari <nrajbhand42@students.tntech.edu>
      */
     public void consume() throws IOException, TimeoutException, InterruptedException {
-        Integer count = 1;
+        int count = 1;
         Integer windowTime = Integer.parseInt(config.getProperty(WINDOW_TIME_PROPERTY));
         Channel channel = this._getChannel();
         _setGBADChannel();
         while (true) {
+            if(consumptionCompleted){
+                channel.close();
+                connection.close();
+                System.out.println("CPU RunTime: "+ Helper.getCpuTime());
+                _notifyGBADRunner(CONSUMPTION_COMPLETED_MESSAGE);
+                break;
+            }
             // Window Limit reached
             // TODO: Select the process size. How ? static value or something related to
             boolean windowSizeConsumed = newDeliveryTag % consumptionLimitPerWindow == 0;
             boolean canSampleWindow = ((windowSizeConsumed || count == 60)
                     && newDeliveryTag != oldDeliveryTag);
-            if (!channel.isOpen()) {
-                connection.close();
-                break;
-            } else if (canSampleWindow) {
+
+
+            if (canSampleWindow) {
                 try {
                     StreamProcessor streamProcessor = StreamProcessor.getInstance();
                     CompletableFuture<Boolean> filterProcessedNode = CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
@@ -94,7 +104,6 @@ public class StreamConsumer {
                     }
                     GraphWriter graphWriter = new GraphWriter(storeSample);
                     graphWriter.write();
-                    System.out.println("Sampled edge count: " + Sampler.getInstance().getSample().getSampledEdgeTypeCount());
                     while (!filterProcessedNode.isDone()) ;
 
                     channel.basicAck(newDeliveryTag, true);
@@ -134,13 +143,16 @@ public class StreamConsumer {
             @Override
             public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) throws IOException {
                 String streamedItem = new String(body, StandardCharsets.UTF_8);
-                try {
-                    StreamProcessor processor = StreamProcessor.getInstance();
-                    newDeliveryTag = envelope.getDeliveryTag();
-
-                    processor.readStreamedItem(streamedItem, windowCount);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                if(streamedItem.equals(CONSUMPTION_COMPLETED_MESSAGE)){
+                    consumptionCompleted = true;
+                }else{
+                    try {
+                        StreamProcessor processor = StreamProcessor.getInstance();
+                        newDeliveryTag = envelope.getDeliveryTag();
+                        processor.readStreamedItem(streamedItem, windowCount);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
             }
         };
@@ -198,4 +210,6 @@ public class StreamConsumer {
         String exchange = config.getProperty(GBAD_EXCHANGE_PROPERTY);
         gbadChannel.basicPublish(exchange, messageQueue, null, message.getBytes());
     }
+
+
 }
