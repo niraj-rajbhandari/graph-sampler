@@ -23,14 +23,32 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class GraphWriter {
-    private static final Logger log = Logger.getLogger(GraphWriter.class.getName());
+    private Logger log;
     private static final String GRAPH_FILE_PROPERTY_KEY = "graph-file";
 
     private Sample sample;
 
+    private boolean differentGraphs;
+    private Integer window;
+    private String dataType;
+    private ConfigReader configReader;
 
-    public GraphWriter(boolean isStored) throws IOException {
-        log.setLevel(Helper.getInstance().getLogLevel(ConfigReader.getInstance()));
+    public GraphWriter() throws IOException {
+        configReader = ConfigReader.getInstance();
+        this.dataType = configReader.getProperty(Helper.DATA_TYPE_KEY);
+        log = Helper.getLogger(GraphWriter.class.getName(), dataType);
+
+        this.differentGraphs = new Boolean(configReader.getProperty(Sample.DIFFERENT_GRAPH_KEY));
+    }
+
+    public GraphWriter(boolean isStored, Integer window) throws IOException {
+        this();
+        this.setSample(isStored);
+        this.window = window;
+
+    }
+
+    public void setSample(boolean isStored) throws IOException {
         if (isStored) {
             log.log(Level.FINE, "Reading sample from stored file");
             sample = _readStoredSample();
@@ -47,14 +65,28 @@ public class GraphWriter {
      */
     public void write() throws IOException {
         log.log(Level.FINE, "Writing the graph to the file");
+
+        String graphFileName = configReader.getProperty(GRAPH_FILE_PROPERTY_KEY);
+        String graphDirectory = Helper.getInstance()
+                .getAbsolutePath("", dataType, FileType.GRAPH);
+        System.out.println("directory: " + graphDirectory);
+        Helper.rename(graphFileName, graphDirectory, "graph-" + window + ".g");
         String graphFile = Helper.getInstance()
-                .getAbsolutePath(ConfigReader.getInstance().getProperty(GRAPH_FILE_PROPERTY_KEY), FileType.GRAPH);
+                .getAbsolutePath(graphFileName,
+                        configReader.getProperty(Helper.DATA_TYPE_KEY), FileType.GRAPH);
         try (RandomAccessFile fileStream = new RandomAccessFile(graphFile, "rw");
              FileChannel channel = fileStream.getChannel()) {
             channel.truncate(0); //empty the file first
             _writeGraph(channel);
         }
+//        System.out.println("Removed edge info:");
+//        System.out.println("===================");
+//        System.out.println((this.sample == null) + "Is Null Sample?");
+//        System.out.println(this.sample.getRemovedEdgeInfo());
+
         _reset();
+
+
     }
 
     /**
@@ -66,7 +98,7 @@ public class GraphWriter {
         log.log(Level.FINE, "Resetting the graph writer sample");
         sample = null;
 
-       // Setting the sample for Sampler from the file for next time window
+        // Setting the sample for Sampler from the file for next time window
         Sampler.getInstance().setSample();
     }
 
@@ -77,11 +109,19 @@ public class GraphWriter {
      * @throws IOException
      */
     private void _writeGraph(FileChannel channel) throws IOException {
-        Integer xpCount = 0;
+        Integer xpCount = 1;
+        Integer nodeCount = 1;
         for (String xp : sample.getSampleNodes().keySet()) {
-            String xpLine = _getXPLine((++xpCount).toString());
-            _writeToFile(channel, xpLine);
-            _writeNodeToFile(channel, xp);
+            if (xpCount == 1 || this.differentGraphs) {
+                String xpLine = _getXPLine((xpCount).toString());
+                _writeToFile(channel, xpLine);
+                xpCount++;
+            }
+
+            if (this.differentGraphs)
+                nodeCount = 1; //reset the nodeCount if different graphs
+
+            nodeCount = _writeNodeToFile(channel, xp, nodeCount);
             _writeEdgeToFile(channel, xp);
         }
     }
@@ -93,11 +133,10 @@ public class GraphWriter {
      * @param xp
      * @throws IOException
      */
-    private void _writeNodeToFile(FileChannel channel, String xp)
+    private Integer _writeNodeToFile(FileChannel channel, String xp, Integer nodeCount)
             throws IOException {
 
         List<Node> nodesInXp = new ArrayList<>(this.sample.getSampleNodes().get(xp).values());
-        Integer nodeCount = 1;
         for (Node node : nodesInXp) {
             String oldNodeId = node.getId(); //get old node id
             node.setId(nodeCount.toString()); // set incremental node id
@@ -106,6 +145,8 @@ public class GraphWriter {
             _writeToFile(channel, nodeLine);
             nodeCount++;
         }
+
+        return nodeCount;
     }
 
 

@@ -3,7 +3,9 @@ package edu.tntech.graph.stream;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.tntech.graph.enumerator.GraphPropertyType;
+import edu.tntech.graph.helper.ConfigReader;
 import edu.tntech.graph.helper.GraphHelper;
+import edu.tntech.graph.helper.Helper;
 import edu.tntech.graph.pojo.Edge;
 import edu.tntech.graph.pojo.Node;
 import edu.tntech.graph.sampler.Sampler;
@@ -15,7 +17,7 @@ import java.util.stream.Collectors;
 
 public class StreamProcessor {
 
-    private static Logger log = Logger.getLogger(StreamProcessor.class.getName());
+    private Logger log;
 
     private static StreamProcessor instance = null;
 
@@ -36,6 +38,9 @@ public class StreamProcessor {
     }
 
     private StreamProcessor() throws IOException {
+        ConfigReader configReader = ConfigReader.getInstance();
+        String dataType = configReader.getProperty(Sampler.DATA_TYPE_PROPERTY);
+        log = Helper.getLogger(StreamProcessor.class.getName(), dataType);
         JsonFactory factory = new JsonFactory();
         mapper = new ObjectMapper(factory);
         unprocessedEdges = new HashMap<>();
@@ -75,7 +80,8 @@ public class StreamProcessor {
      * @param windowCount
      * @throws IOException
      */
-    public void readStreamedItem(String streamedItem, Integer windowCount) throws IOException {
+    public void readStreamedItem(String streamedItem, Integer windowCount, long deliveryTag) throws IOException {
+//        System.out.println("Reading streamed Item: "+ deliveryTag);
         StreamItemProcessor itemProcessor = new StreamItemProcessor();
         itemProcessor.setStreamedItem(streamedItem);
         if (itemProcessor.getStreamedItemType() == GraphPropertyType.NODE) {
@@ -84,6 +90,7 @@ public class StreamProcessor {
             this._readStreamedEdge(itemProcessor, windowCount);
         }
         streamedItemCount++;
+//        System.out.println("Completed Reading streamed Item: "+ deliveryTag);
     }
 
     /**
@@ -148,9 +155,11 @@ public class StreamProcessor {
      * @param windowCount
      */
     private void _sampleEdge(Edge edge, String graphId, Integer windowCount) {
+        System.out.println("Sampling Edge");
         edge.setSourceVertex(processedNodes.get(graphId).get(edge.getSource()));
         edge.setTargetVertex(processedNodes.get(graphId).get(edge.getTarget()));
         this.sampler.createSampleGraphFromStream(edge, windowCount);
+        System.out.println("Completed Sampling Edge");
     }
 
     /**
@@ -222,7 +231,7 @@ public class StreamProcessor {
      * @return
      */
     public Boolean filterProcessedNodes(int timeStep) {
-        log.info("filterd process called");
+        log.info("filter process called");
         for (Map.Entry<String, Map<String, Node>> nodes : this.processedNodes.entrySet()) {
             Map<String, Node> graphNodes = nodes.getValue().entrySet().stream()
                     .filter(n -> filterUnprocessedEdge(n.getValue(), timeStep))

@@ -60,7 +60,8 @@ public class GraphHelper {
 
     public static Sample getStoredSample() throws IOException {
         ObjectMapper mapper = new ObjectMapper();
-        File sampleFile = new File(Helper.getInstance().getAbsolutePath(Sample.SAMPLE_FILE, FileType.DATA));
+        String dataType = ConfigReader.getInstance().getProperty(Helper.DATA_TYPE_KEY);
+        File sampleFile = new File(Helper.getInstance().getAbsolutePath(Sample.SAMPLE_FILE, dataType, FileType.DATA));
         Sample sample = mapper.readValue(sampleFile, Sample.class);
         for (Map.Entry<String, Map<Integer, Edge>> entry : sample.getSampleEdges().entrySet()) {
             Map<Integer, Edge> edges = entry.getValue().entrySet().stream()

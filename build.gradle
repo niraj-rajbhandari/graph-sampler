@@ -35,7 +35,7 @@ repositories {
 
 task copyJar(type: Copy) {
     from jar // here it automatically reads jar file produced from jar task
-    into "/Users/destroyed/workspace/research/gbad-stream/"
+    into "/Users/destroyed/workspace/Dropbox/research/gbad-stream/"
 }
 
 task buildApp(dependsOn: [clean, jar, copyJar])

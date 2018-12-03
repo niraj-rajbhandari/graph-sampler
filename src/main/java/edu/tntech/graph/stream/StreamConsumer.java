@@ -12,13 +12,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
+import java.util.logging.Logger;
 
 public class StreamConsumer {
 
+    private Logger LOGGER;
+
     private static final String CONSUMPTION_COMPLETED_MESSAGE = "done";
     private static final String PROCESSED_ITEM_SIZE_PROPERTY = "processed-item-size";
-    private static final String MESSAGE_QUEUE_PROPERTY = "message-queue";
-    private static final String GBAD_MESSAGE_QUEUE_PROPERTY = "gbad-message-queue";
     private static final String QUEUE_CONNECTION_HOST_PROPERTY = "connection-host";
     private static final String QUEUE_USERNAME_PROPERTY = "rabbitmq-username";
     private static final String QUEUE_PASSWORD_PROPERTY = "rabbitmq-password";
@@ -26,6 +27,14 @@ public class StreamConsumer {
     private static final String GRAPH_EXCHANGE_PROPERTY = "graph-exchange";
     private static final String GBAD_EXCHANGE_PROPERTY = "gbad-exchange";
     private static final String WINDOW_TIME_PROPERTY = "window-time";
+    private static final String GBAD_ALGO_PROPERTY = "gbad-algo";
+
+    private static final String QUEUE_PREFIX = "graph-stream";
+    private static final String GBAD_QUEUE_PREFIX = "gbad";
+
+    private static final String MQ_HEARTBEAT_PROPERTY = "mq-heartbeat";
+
+    private static final String COMPLETED = "completed";
 
     private static final String EXCHANGE_TYPE = "direct";
     private static final Integer SINGLE_GBAD_NOTIFICATION = 1;
@@ -37,25 +46,57 @@ public class StreamConsumer {
     private Long newDeliveryTag;
     private Long oldDeliveryTag;
     private static StreamConsumer instance = null;
+    private String dataType;
 
-    private Connection connection;
-    private Channel gbadChannel;
+    private Connection streamConnection;
+
+    private Connection gbadConnection;
+    private Channel gbadRequestChannel;
+    private Channel gbadResponseChannel;
 
     private Integer windowCount;
     private Integer consumptionLimitPerWindow;
 
+    private String messageQueue;
+
+    private boolean gbadRunning;
+
     private StreamConsumer() throws FileNotFoundException {
+
         config = ConfigReader.getInstance();
+        dataType = config.getProperty(Sampler.DATA_TYPE_PROPERTY);
+
+        LOGGER = Helper.getLogger(StreamConsumer.class.getName(), dataType);
+
         newDeliveryTag = 0l;
         oldDeliveryTag = 0l;
         windowCount = 0;
+        gbadRunning = false;
 
         Float processedItemConfig = Float.parseFloat(config.getProperty(PROCESSED_ITEM_SIZE_PROPERTY));
         Double processWindowSize = Math.ceil(Sampler.getInstance().getSampleSize() * processedItemConfig);
         consumptionLimitPerWindow = processWindowSize.intValue();
 
-        System.out.println("Sample size:" + Sampler.getInstance().getSampleSize());
-        System.out.println(consumptionLimitPerWindow + ": consumption limit per window");
+        LOGGER.info("Consumption per window: " + consumptionLimitPerWindow);
+
+        messageQueue = QUEUE_PREFIX + "-" + config.getProperty(GBAD_ALGO_PROPERTY) + "-" + dataType;
+
+    }
+
+    public Connection getStreamConnection() {
+        return streamConnection;
+    }
+
+    public Channel getGbadRequestChannel() {
+        return gbadRequestChannel;
+    }
+
+    public Channel getGbadResponseChannel() {
+        return gbadResponseChannel;
+    }
+
+    public Logger getLogger() {
+        return LOGGER;
     }
 
     public static StreamConsumer getInstance() throws IOException {
@@ -79,42 +120,65 @@ public class StreamConsumer {
         Channel channel = this._getChannel();
         _setGBADChannel();
         while (true) {
-            if(consumptionCompleted){
-                channel.close();
-                connection.close();
-                System.out.println("CPU RunTime: "+ Helper.getCpuTime());
-                _notifyGBADRunner(CONSUMPTION_COMPLETED_MESSAGE);
-                break;
-            }
             // Window Limit reached
             // TODO: Select the process size. How ? static value or something related to
             boolean windowSizeConsumed = newDeliveryTag % consumptionLimitPerWindow == 0;
             boolean canSampleWindow = ((windowSizeConsumed || count == 60)
-                    && newDeliveryTag != oldDeliveryTag);
+                    && newDeliveryTag != oldDeliveryTag && !gbadRunning) || (!gbadRunning && consumptionCompleted);
 
+            canSampleWindow = consumptionCompleted;
+            if (count % 4 == 0 || canSampleWindow)
+                LOGGER.info("Can sample window: " + canSampleWindow + "  | is gbad running: " + gbadRunning +
+                        " | windowSizeConsumed: " + windowSizeConsumed + " | count: " + count + " | oldDeliveryTag: " +
+                        oldDeliveryTag + " | newDeliveryTag: " + newDeliveryTag);
 
             if (canSampleWindow) {
+
                 try {
                     StreamProcessor streamProcessor = StreamProcessor.getInstance();
-                    CompletableFuture<Boolean> filterProcessedNode = CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
+                    CompletableFuture<Boolean> filterProcessedNode =
+                            CompletableFuture.supplyAsync(() -> streamProcessor.filterProcessedNodes(windowCount));
                     boolean storeSample = Boolean.parseBoolean(config.getProperty(Sample.STORE_SAMPLE_INDEX));
                     this._resetConsumedItems();
                     if (storeSample) {
                         Sampler.getInstance().writeToFile();
                     }
-                    GraphWriter graphWriter = new GraphWriter(storeSample);
+                    GraphWriter graphWriter = new GraphWriter(storeSample, windowCount);
                     graphWriter.write();
+
                     while (!filterProcessedNode.isDone()) ;
 
-                    channel.basicAck(newDeliveryTag, true);
+                    //acknowledge receiving all the messages on the window
+//                    channel.basicAck(newDeliveryTag, true);
                     oldDeliveryTag = newDeliveryTag;
+
+                    /*Resetting the edge type count after defined timestep*/
+                    int resetTimeStep = Integer.parseInt(config.getProperty(Sample.TIMESTEP_RESET_KEY));
+                    if (windowCount % resetTimeStep == 0) {
+                        Sampler.getInstance().resetSampledEdgeTypeCount();
+                    }
+
                     windowCount++;
                     count = 0;
-                    _notifyGBADRunner(Long.toString(newDeliveryTag));
+//                    _notifyGBADRunner(Long.toString(newDeliveryTag));
+
+                    if (consumptionCompleted) {
+//                        _notifyGBADRunner(CONSUMPTION_COMPLETED_MESSAGE);
+                        channel.close();
+                        if (!gbadRunning) {
+                            gbadRequestChannel.close();
+                            gbadResponseChannel.close();
+                            streamConnection.close();
+                            gbadConnection.close();
+                        }
+                        LOGGER.info("CPU RunTime: " + Helper.getCpuTime());
+                        break;
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                     channel.close();
-                    connection.close();
+                    streamConnection.close();
+                    gbadConnection.close();
                     break;
                 }
             }
@@ -141,18 +205,48 @@ public class StreamConsumer {
     private Consumer _getConsumer(Channel channel) {
         return new DefaultConsumer(channel) {
             @Override
-            public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) throws IOException {
+            public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties,
+                                       byte[] body) throws IOException {
                 String streamedItem = new String(body, StandardCharsets.UTF_8);
-                if(streamedItem.equals(CONSUMPTION_COMPLETED_MESSAGE)){
+                newDeliveryTag = envelope.getDeliveryTag();
+                if (streamedItem.equals(CONSUMPTION_COMPLETED_MESSAGE)) {
+                    LOGGER.info("Consumption Completed: " + newDeliveryTag);
                     consumptionCompleted = true;
-                }else{
+                } else {
                     try {
+                        LOGGER.info("Reading Streamed Item: " + newDeliveryTag);
                         StreamProcessor processor = StreamProcessor.getInstance();
-                        newDeliveryTag = envelope.getDeliveryTag();
-                        processor.readStreamedItem(streamedItem, windowCount);
+                        processor.readStreamedItem(streamedItem, windowCount, newDeliveryTag);
+                        LOGGER.info("Completed Reading Streamed Item: " + newDeliveryTag);
+                        channel.basicAck(newDeliveryTag, true);
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
+                }
+            }
+        };
+    }
+
+    private Consumer _gbadResponseConsumer(Channel responseChannel) {
+        return new DefaultConsumer(responseChannel) {
+            @Override
+            public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties,
+                                       byte[] body) throws IOException {
+                try {
+                    String streamedItem = new String(body, StandardCharsets.UTF_8);
+
+                    if (streamedItem.equals(COMPLETED)) {
+                        gbadRunning = false;
+                        Helper.writeCPUTimeToFile(windowCount, dataType);
+                        if (consumptionCompleted) {
+                            StreamConsumer.getInstance().getGbadRequestChannel().close();
+                            StreamConsumer.getInstance().getGbadResponseChannel().close();
+                            StreamConsumer.getInstance().getStreamConnection().close();
+                        }
+                    }
+                    responseChannel.basicAck(envelope.getDeliveryTag(), true);
+                } catch (TimeoutException e) {
+                    e.printStackTrace();
                 }
             }
         };
@@ -166,10 +260,9 @@ public class StreamConsumer {
      * @throws IOException
      */
     private Channel _getChannel() throws TimeoutException, IOException {
-        String messageQueue = config.getProperty(MESSAGE_QUEUE_PROPERTY);
         String exchange = config.getProperty(GRAPH_EXCHANGE_PROPERTY);
         _setConnection();
-        Channel channel = connection.createChannel();
+        Channel channel = streamConnection.createChannel();
         channel.basicQos(consumptionLimitPerWindow);
         channel.exchangeDeclare(exchange, EXCHANGE_TYPE);
         channel.queueDeclare(messageQueue, false, false, false, null);
@@ -179,36 +272,91 @@ public class StreamConsumer {
     }
 
     private void _setConnection() throws TimeoutException, IOException {
-        if (connection == null) {
+        if (streamConnection == null) {
+            int heartbeatInMinutes = Integer.parseInt(config.getProperty(MQ_HEARTBEAT_PROPERTY));
             ConnectionFactory factory = new ConnectionFactory();
             factory.setUsername(config.getProperty(QUEUE_USERNAME_PROPERTY));
             factory.setPassword(config.getProperty(QUEUE_PASSWORD_PROPERTY));
             factory.setHost(config.getProperty(QUEUE_CONNECTION_HOST_PROPERTY));
             factory.setVirtualHost(config.getProperty(QUEUE_VIRTUAL_HOST_PROPERTY));
-            int oneHourHeartBeat = 600 * 61;
-            factory.setRequestedHeartbeat(oneHourHeartBeat);
-            connection = factory.newConnection();
+//            int heartbeat = SECOND_IN_MILLIS * heartbeatInMinutes;
+            int heartbeat = heartbeatInMinutes;
+            factory.setRequestedHeartbeat(heartbeat);
+            streamConnection = factory.newConnection();
         }
+    }
 
+    private void _setGBADConnection() throws TimeoutException, IOException {
+        if (gbadConnection == null) {
+            ConnectionFactory factory = _getConnectionFactory();
+            int heartbeat = SECOND_IN_MILLIS * Integer.parseInt(config.getProperty(WINDOW_TIME_PROPERTY));
+            factory.setRequestedHeartbeat(heartbeat);
+            gbadConnection = factory.newConnection();
+        }
+    }
+
+    private ConnectionFactory _getConnectionFactory() {
+        ConnectionFactory factory = new ConnectionFactory();
+        factory.setUsername(config.getProperty(QUEUE_USERNAME_PROPERTY));
+        factory.setPassword(config.getProperty(QUEUE_PASSWORD_PROPERTY));
+        factory.setHost(config.getProperty(QUEUE_CONNECTION_HOST_PROPERTY));
+        factory.setVirtualHost(config.getProperty(QUEUE_VIRTUAL_HOST_PROPERTY));
+        return factory;
     }
 
     private void _setGBADChannel() throws TimeoutException, IOException {
-        if (gbadChannel == null) {
-            String messageQueue = config.getProperty(GBAD_MESSAGE_QUEUE_PROPERTY);
-            _setConnection();
-            String exchange = config.getProperty(GBAD_EXCHANGE_PROPERTY);
-            gbadChannel = connection.createChannel();
-            gbadChannel.exchangeDeclare(exchange, EXCHANGE_TYPE);
-            gbadChannel.basicQos(SINGLE_GBAD_NOTIFICATION);
-            gbadChannel.queueDeclare(messageQueue, false, false, false, null);
-            gbadChannel.queueBind(messageQueue, exchange, messageQueue);
+        _setGBADConnection();
+        String exchange = config.getProperty(GBAD_EXCHANGE_PROPERTY);
+        if (gbadRequestChannel == null) {
+            String messageQueue = GBAD_QUEUE_PREFIX + "-" + config.getProperty(GBAD_ALGO_PROPERTY) + "-" + dataType;
+            gbadRequestChannel = gbadConnection.createChannel();
+            gbadRequestChannel.addShutdownListener(getShutDownListener());
+            gbadRequestChannel.exchangeDeclare(exchange, EXCHANGE_TYPE);
+            gbadRequestChannel.basicQos(SINGLE_GBAD_NOTIFICATION);
+            gbadRequestChannel.queueDeclare(messageQueue, false, false, false, null);
+            gbadRequestChannel.queueBind(messageQueue, exchange, messageQueue);
+        }
+
+        if (gbadResponseChannel == null) {
+            String responseMessageQueue = GBAD_QUEUE_PREFIX + "-" + config.getProperty(GBAD_ALGO_PROPERTY) + "-" +
+                    dataType + "-response";
+
+            gbadResponseChannel = gbadConnection.createChannel();
+            gbadResponseChannel.addShutdownListener(getShutDownListener());
+            gbadResponseChannel.exchangeDeclare(exchange, EXCHANGE_TYPE);
+            gbadResponseChannel.basicQos(SINGLE_GBAD_NOTIFICATION);
+            gbadResponseChannel.queueDeclare(responseMessageQueue, false, false, false, null);
+            gbadResponseChannel.queueBind(responseMessageQueue, exchange, responseMessageQueue);
+            gbadResponseChannel.basicConsume(responseMessageQueue, _gbadResponseConsumer(gbadResponseChannel));
         }
     }
 
     private void _notifyGBADRunner(String message) throws IOException {
-        String messageQueue = config.getProperty(GBAD_MESSAGE_QUEUE_PROPERTY);
+        LOGGER.info("notifying GBAD");
+        String messageQueue = GBAD_QUEUE_PREFIX + "-" + config.getProperty(GBAD_ALGO_PROPERTY) + "-" + dataType;
         String exchange = config.getProperty(GBAD_EXCHANGE_PROPERTY);
-        gbadChannel.basicPublish(exchange, messageQueue, null, message.getBytes());
+        gbadRequestChannel.basicPublish(exchange, messageQueue, null, message.getBytes());
+        gbadRunning = true;
+    }
+
+    private ShutdownListener getShutDownListener() {
+        ShutdownListener shutdownListener = new ShutdownListener() {
+            @Override
+            public void shutdownCompleted(ShutdownSignalException cause) {
+                if (cause.isInitiatedByApplication()) {
+                    LOGGER.info("Shutdown is initiated by application. Ignoring it.");
+                    LOGGER.info(cause.getMessage());
+                } else {
+                    LOGGER.severe("Shutdown is NOT initiated by application: " + cause.getMessage());
+                    LOGGER.severe(cause.getMessage());
+//                    boolean cliMode = Boolean.getBoolean(PropertiesConfig.CLI_MODE);
+//                    if (cliMode) {
+//                        System.exit(-3);
+//                    }
+                }
+            }
+        };
+        return shutdownListener;
     }
 
 

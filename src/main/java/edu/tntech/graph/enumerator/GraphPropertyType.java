@@ -12,6 +12,6 @@ public enum GraphPropertyType {
     }
 
     public String getItemType() {
-        return itemType;
+        return itemType.toUpperCase();
     }
 }

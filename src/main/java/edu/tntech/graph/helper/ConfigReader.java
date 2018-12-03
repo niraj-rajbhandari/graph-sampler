@@ -19,13 +19,14 @@ public class ConfigReader {
 
     ConfigReader() throws FileNotFoundException {
         Helper helper = Helper.getInstance();
-        try (InputStream inputStream = new FileInputStream(helper.getAbsolutePath(CONFIG_FILE, FileType.OTHERS))) {
+        try (InputStream inputStream = new FileInputStream(helper.getAbsolutePath(CONFIG_FILE, Helper.DATA_TYPE_KEY,
+                FileType.OTHERS))) {
             this.properties = new Properties();
             if (inputStream == null) {
                 throw new FileNotFoundException("Config File not found");
             }
             this.properties.load(inputStream);
-        }catch(IOException e){
+        } catch (IOException e) {
             throw new FileNotFoundException(e.getMessage());
         }
     }
